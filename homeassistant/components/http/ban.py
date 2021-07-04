@@ -6,10 +6,11 @@ from collections.abc import Awaitable, Callable, Coroutine
 from contextlib import suppress
 from datetime import datetime
 from http import HTTPStatus
-from ipaddress import IPv4Address, IPv6Address, ip_address
+from ipaddress import IPv4Address, IPv6Address, IPv4Network, IPv6Network, ip_address
 import logging
 from socket import gethostbyaddr, herror
 from typing import Any, Concatenate, Final, ParamSpec, TypeVar
+from typing import List, Union, cast
 
 from aiohttp.web import Application, Request, Response, StreamResponse, middleware
 from aiohttp.web_exceptions import HTTPForbidden, HTTPUnauthorized
@@ -30,6 +31,8 @@ _P = ParamSpec("_P")
 _LOGGER: Final = logging.getLogger(__name__)
 
 KEY_BAN_MANAGER: Final = "ha_banned_ips_manager"
+KEY_BANNED_IPS: Final = "ha_banned_ips"
+KEY_IP_BAN_IGNORE_IPS: Final = "ha_ip_ban_ignore_ips"
 KEY_FAILED_LOGIN_ATTEMPTS: Final = "ha_failed_login_attempts"
 KEY_LOGIN_THRESHOLD: Final = "ha_login_threshold"
 
@@ -43,14 +46,22 @@ SCHEMA_IP_BAN_ENTRY: Final = vol.Schema(
     {vol.Optional("banned_at"): vol.Any(None, cv.datetime)}
 )
 
+IPNetwork = Union[IPv4Network, IPv6Network]
+
 
 @callback
-def setup_bans(hass: HomeAssistant, app: Application, login_threshold: int) -> None:
+def setup_bans(
+    hass: HomeAssistant,
+    app: Application,
+    login_threshold: int,
+    ip_ban_ignore_ips: list[str],
+) -> None:
     """Create IP Ban middleware for the app."""
     app.middlewares.append(ban_middleware)
     app[KEY_FAILED_LOGIN_ATTEMPTS] = defaultdict(int)
     app[KEY_LOGIN_THRESHOLD] = login_threshold
     app[KEY_BAN_MANAGER] = IpBanManager(hass)
+    app[KEY_IP_BAN_IGNORE_IPS] = ip_ban_ignore_ips
 
     async def ban_startup(app: Application) -> None:
         """Initialize bans when app starts up."""
@@ -134,6 +145,15 @@ async def process_wrong_login(request: Request) -> None:
 
     # Check if ban middleware is loaded
     if KEY_BAN_MANAGER not in request.app or request.app[KEY_LOGIN_THRESHOLD] < 1:
+        return
+
+    # Ignored ips should not be banned. The counter shouldn't be increased.
+    if any(
+        remote_addr in ip_ban_ignore_ip
+        for ip_ban_ignore_ip in cast(
+            List[IPNetwork], request.app[KEY_IP_BAN_IGNORE_IPS]
+        )
+    ):
         return
 
     request.app[KEY_FAILED_LOGIN_ATTEMPTS][remote_addr] += 1
