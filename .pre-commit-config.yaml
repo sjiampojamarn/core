@@ -32,7 +32,8 @@ repos:
       - id: no-commit-to-branch
         args:
           - --branch=dev
-          - --branch=master
+          # SJ: fork branch for personal uses.
+          # - --branch=master
           - --branch=rc
   - repo: https://github.com/adrienverge/yamllint.git
     rev: v1.32.0
