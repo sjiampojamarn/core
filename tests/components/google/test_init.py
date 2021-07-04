@@ -441,6 +441,7 @@ async def test_add_event(
         ),
         (
             {
+<<<<<<< HEAD
                 "start_date": datetime.date.today().isoformat(),
                 "end_date": (
                     datetime.date.today() + datetime.timedelta(days=2)
@@ -468,6 +469,28 @@ async def test_add_event_date_ranges(
     """Test service call that adds an event with various time ranges."""
 
     assert await component_setup()
+=======
+                "device_id": "we_are_we_are_a_test_calendar",
+                "name": "We are, we are, a... Test Calendar",
+                "track": True,
+                "ignore_availability": True,
+                "show_next_event_happening_in_mins": -1,
+            }
+        ],
+    }
+
+
+async def test_found_calendar(hass, google_setup, mock_next_event, test_calendar):
+    """Test when a calendar is found."""
+    config = {
+        "google": {
+            CONF_CLIENT_ID: "id",
+            CONF_CLIENT_SECRET: "secret",
+            "track_new_calendar": True,
+        }
+    }
+    assert await async_setup_component(hass, "google", config)
+    assert hass.data[google.DATA_INDEX] == {}
 
     await hass.services.async_call(
         DOMAIN,

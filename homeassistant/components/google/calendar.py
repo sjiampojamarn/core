@@ -7,6 +7,7 @@ import logging
 from typing import Any
 
 from googleapiclient import discovery as google_discovery
+import dateutil.parser
 from httplib2 import ServerNotFoundError
 
 from homeassistant.components.calendar import (
@@ -26,6 +27,7 @@ from . import (
     CONF_CAL_ID,
     CONF_IGNORE_AVAILABILITY,
     CONF_SEARCH,
+    CONF_SHOW_NEXT_EVENT_HAPPENING_IN_MINS,
     CONF_TRACK,
     DEFAULT_CONF_OFFSET,
     TOKEN_FILE,
@@ -39,7 +41,7 @@ DEFAULT_GOOGLE_SEARCH_PARAMS = {
     "singleEvents": True,
 }
 
-MIN_TIME_BETWEEN_UPDATES = timedelta(minutes=15)
+MIN_TIME_BETWEEN_UPDATES = timedelta(minutes=2)
 
 
 def setup_platform(
@@ -87,6 +89,7 @@ class GoogleCalendarEventDevice(CalendarEventDevice):
             calendar_id,
             data.get(CONF_SEARCH),
             data.get(CONF_IGNORE_AVAILABILITY, False),
+            data.get(CONF_SHOW_NEXT_EVENT_HAPPENING_IN_MINS),
         )
         self._event: dict[str, Any] | None = None
         self._name: str = data[CONF_NAME]
@@ -127,6 +130,13 @@ class GoogleCalendarEventDevice(CalendarEventDevice):
         self._event = event
 
 
+def get_event_start_time(event):
+    """Get event start time."""
+    if "dateTime" in event["start"].keys():
+        return dateutil.parser.parse(event["start"]["dateTime"]).astimezone()
+    return dateutil.parser.parse(event["start"]["date"]).astimezone()
+
+
 class GoogleCalendarData:
     """Class to utilize calendar service object to get next event."""
 
@@ -136,6 +146,7 @@ class GoogleCalendarData:
         calendar_id: str,
         search: str | None,
         ignore_availability: bool,
+        show_next_event_happening_in_mins,
     ) -> None:
         """Set up how we are going to search the google calendar."""
         self.calendar_service = calendar_service
@@ -143,6 +154,7 @@ class GoogleCalendarData:
         self.search = search
         self.ignore_availability = ignore_availability
         self.event: dict[str, Any] | None = None
+        self.show_next_event_happening_in_mins = show_next_event_happening_in_mins
 
     def _prepare_query(
         self,
@@ -203,6 +215,35 @@ class GoogleCalendarData:
                 event_list.append(item)
         return result.get("nextPageToken")
 
+    def get_new_event(self, items):
+        """Get new calendar event given the list of events return from Google."""
+        new_event = None
+        time_now = datetime.now().astimezone()
+
+        for item in items:
+            # check already found new_event
+            if new_event is not None:
+                # future event
+                if get_event_start_time(new_event) > time_now:
+                    break
+                # in-progress event, next event is happening too far.
+                if (get_event_start_time(item) - time_now) > timedelta(
+                    minutes=self.show_next_event_happening_in_mins
+                ):
+                    break
+
+            if not self.ignore_availability and "transparency" in item.keys():
+                if item["transparency"] == "opaque":
+                    new_event = item
+                    if self.show_next_event_happening_in_mins < 0:
+                        break
+            else:
+                new_event = item
+                if self.show_next_event_happening_in_mins < 0:
+                    break
+
+        return new_event
+
     @Throttle(MIN_TIME_BETWEEN_UPDATES)
     def update(self) -> None:
         """Get the latest data."""
@@ -216,14 +257,4 @@ class GoogleCalendarData:
 
         items = result.get("items", [])
 
-        new_event = None
-        for item in items:
-            if not self.ignore_availability and "transparency" in item:
-                if item["transparency"] == "opaque":
-                    new_event = item
-                    break
-            else:
-                new_event = item
-                break
-
-        self.event = new_event
+        self.event = self.get_new_event(items)
