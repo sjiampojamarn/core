@@ -1,6 +1,7 @@
 """The tests for the Home Assistant HTTP component."""
 from http import HTTPStatus
 from ipaddress import ip_address
+from ipaddress import IPv4Network
 import os
 from unittest.mock import Mock, mock_open, patch
 
@@ -30,6 +31,8 @@ from tests.typing import ClientSessionGenerator
 SUPERVISOR_IP = "1.2.3.4"
 BANNED_IPS = ["200.201.202.203", "100.64.0.2"]
 BANNED_IPS_WITH_SUPERVISOR = BANNED_IPS + [SUPERVISOR_IP]
+IP_BAN_IGNORE_IPS = [IPv4Network("192.168.1.0/24"), IPv4Network("10.0.0.1")]
+IGNORE_IPS = ["192.168.1.1", "10.0.0.1"]
 
 
 @pytest.fixture(name="hassio_env")
@@ -58,7 +61,7 @@ async def test_access_from_banned_ip(
     """Test accessing to server from banned IP. Both trusted and not."""
     app = web.Application()
     app["hass"] = hass
-    setup_bans(hass, app, 5)
+    setup_bans(hass, app, 1, IP_BAN_IGNORE_IPS)
     set_real_ip = mock_real_ip(app)
 
     with patch(
@@ -205,7 +208,7 @@ async def test_access_from_supervisor_ip(
         raise HTTPUnauthorized
 
     app.router.add_get("/", unauth_handler)
-    setup_bans(hass, app, 1)
+    setup_bans(hass, app, 1, IP_BAN_IGNORE_IPS)
     mock_real_ip(app)(remote_addr)
 
     with patch(
@@ -276,7 +279,7 @@ async def test_ip_bans_file_creation(
         raise HTTPUnauthorized
 
     app.router.add_get("/example", unauth_handler)
-    setup_bans(hass, app, 2)
+    setup_bans(hass, app, 2, IP_BAN_IGNORE_IPS)
     mock_real_ip(app)("200.201.202.204")
 
     with patch(
@@ -342,9 +345,10 @@ async def test_failed_login_attempts_counter(
         "/", request_handler_factory(Mock(requires_auth=False), auth_handler)
     )
 
-    setup_bans(hass, app, 5)
+    setup_bans(hass, app, 5, IP_BAN_IGNORE_IPS)
+    set_real_ip = mock_real_ip(app)
     remote_ip = ip_address("200.201.202.204")
-    mock_real_ip(app)("200.201.202.204")
+    set_real_ip("200.201.202.204")
 
     @middleware
     async def mock_auth(request, handler):
@@ -371,8 +375,15 @@ async def test_failed_login_attempts_counter(
     assert resp.status == HTTPStatus.OK
     assert app[KEY_FAILED_LOGIN_ATTEMPTS][remote_ip] == 2
 
-    # This used to check that with trusted networks we reset login attempts
-    # We no longer support trusted networks.
     resp = await client.get("/auth_true")
     assert resp.status == HTTPStatus.OK
     assert app[KEY_FAILED_LOGIN_ATTEMPTS][remote_ip] == 2
+
+    # Test IP_BAN_IGNORE_IPS
+    # The authentication should still be rejected but the banned counter should be 0.
+    for remote_addr in IGNORE_IPS:
+        remote_ip = ip_address(remote_addr)
+        set_real_ip(remote_addr)
+        resp = await client.get("/auth_false")
+        assert resp.status == 401
+        assert app[KEY_FAILED_LOGIN_ATTEMPTS][remote_ip] == 0
