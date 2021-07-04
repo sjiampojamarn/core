@@ -46,6 +46,7 @@ CONF_USE_X_FORWARDED_FOR: Final = "use_x_forwarded_for"
 CONF_TRUSTED_PROXIES: Final = "trusted_proxies"
 CONF_LOGIN_ATTEMPTS_THRESHOLD: Final = "login_attempts_threshold"
 CONF_IP_BAN_ENABLED: Final = "ip_ban_enabled"
+CONF_IP_BAN_IGNORE_IPS: Final = "ip_ban_ignore_ips"
 CONF_SSL_PROFILE: Final = "ssl_profile"
 
 SSL_MODERN: Final = "modern"
@@ -88,6 +89,9 @@ HTTP_SCHEMA: Final = vol.All(
                 CONF_LOGIN_ATTEMPTS_THRESHOLD, default=NO_LOGIN_ATTEMPT_THRESHOLD
             ): vol.Any(cv.positive_int, NO_LOGIN_ATTEMPT_THRESHOLD),
             vol.Optional(CONF_IP_BAN_ENABLED, default=True): cv.boolean,
+            vol.Optional(CONF_IP_BAN_IGNORE_IPS, default=[]): vol.All(
+                cv.ensure_list, [ip_network]
+            ),
             vol.Optional(CONF_SSL_PROFILE, default=SSL_MODERN): vol.In(
                 [SSL_INTERMEDIATE, SSL_MODERN]
             ),
@@ -112,6 +116,7 @@ class ConfData(TypedDict, total=False):
     trusted_proxies: list[str]
     login_attempts_threshold: int
     ip_ban_enabled: bool
+    ip_ban_ignore_ips: list[str]
     ssl_profile: str
 
 
@@ -155,6 +160,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     use_x_forwarded_for = conf.get(CONF_USE_X_FORWARDED_FOR, False)
     trusted_proxies = conf.get(CONF_TRUSTED_PROXIES) or []
     is_ban_enabled = conf[CONF_IP_BAN_ENABLED]
+    ip_ban_ignore_ips = conf.get(CONF_IP_BAN_IGNORE_IPS) or []
     login_threshold = conf[CONF_LOGIN_ATTEMPTS_THRESHOLD]
     ssl_profile = conf[CONF_SSL_PROFILE]
 
@@ -173,6 +179,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         use_x_forwarded_for=use_x_forwarded_for,
         login_threshold=login_threshold,
         is_ban_enabled=is_ban_enabled,
+        ip_ban_ignore_ips=ip_ban_ignore_ips,
+        ssl_profile=ssl_profile,
     )
 
     async def stop_server(event: Event) -> None:
@@ -217,10 +225,38 @@ class HomeAssistantHTTP:
         server_host: list[str] | None,
         server_port: int,
         trusted_proxies: list[str],
+<<<<<<< HEAD
         ssl_profile: str,
     ) -> None:
         """Initialize the HTTP Home Assistant server."""
         self.app = web.Application(middlewares=[], client_max_size=MAX_CLIENT_SIZE)
+=======
+        login_threshold: int,
+        is_ban_enabled: bool,
+        ip_ban_ignore_ips: list[str],
+        ssl_profile: str,
+    ) -> None:
+        """Initialize the HTTP Home Assistant server."""
+        app = self.app = web.Application(
+            middlewares=[], client_max_size=MAX_CLIENT_SIZE
+        )
+        app[KEY_HASS] = hass
+
+        # Order matters, security filters middle ware needs to go first,
+        # forwarded middleware needs to go second.
+        setup_security_filter(app)
+
+        async_setup_forwarded(app, use_x_forwarded_for, trusted_proxies)
+
+        setup_request_context(app, current_request)
+
+        if is_ban_enabled:
+            setup_bans(hass, app, login_threshold, ip_ban_ignore_ips)
+
+        setup_auth(hass, app)
+
+        setup_cors(app, cors_origins)
+
         self.hass = hass
         self.ssl_certificate = ssl_certificate
         self.ssl_peer_certificate = ssl_peer_certificate
@@ -228,6 +264,8 @@ class HomeAssistantHTTP:
         self.server_host = server_host
         self.server_port = server_port
         self.trusted_proxies = trusted_proxies
+        self.is_ban_enabled = is_ban_enabled
+        self.ip_ban_ignore_ips = ip_ban_ignore_ips
         self.ssl_profile = ssl_profile
         self.runner: web.AppRunner | None = None
         self.site: HomeAssistantTCPSite | None = None
@@ -400,6 +438,11 @@ async def start_http_server_and_save_config(
     if CONF_TRUSTED_PROXIES in conf:
         conf[CONF_TRUSTED_PROXIES] = [
             str(ip.network_address) for ip in conf[CONF_TRUSTED_PROXIES]
+        ]
+
+    if CONF_IP_BAN_IGNORE_IPS in conf:
+        conf[CONF_IP_BAN_IGNORE_IPS] = [
+            str(ip.network_address) for ip in conf[CONF_IP_BAN_IGNORE_IPS]
         ]
 
     store.async_delay_save(lambda: conf, SAVE_DELAY)
