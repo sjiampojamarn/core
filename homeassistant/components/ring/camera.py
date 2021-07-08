@@ -87,7 +87,9 @@ async def async_setup_entry(
         RingCam(camera, devices_coordinator, description, ffmpeg_manager=ffmpeg_manager)
         for description in CAMERA_DESCRIPTIONS
         for camera in ring_data.devices.video_devices
-        if description.exists_fn(camera)
+        #if description.exists_fn(camera)
+        #if camera.has_subscription
+        if true
     ]
 
     async_add_entities(cams)
@@ -113,6 +115,7 @@ class RingCam(RingEntity[RingDoorBell], Camera):
         self._last_video_id: int | None = None
         self._video_url: str | None = None
         self._images: dict[tuple[int | None, int | None], bytes] = {}
+        self._ffmpeg_arguments = None
         self._expires_at = dt_util.utcnow() - FORCE_REFRESH_INTERVAL
         self._attr_unique_id = f"{device.id}-{description.key}"
         if description.motion_detection and device.has_capability(
@@ -164,10 +167,14 @@ class RingCam(RingEntity[RingDoorBell], Camera):
             return None
 
         key = (width, height)
-        if not (image := self._images.get(key)):
+        ## SJ setting ffmpeg args
+        if not (image := self._images.get(key)) and self._video_url is not None:
+            from os import path
+            self._ffmpeg_arguments = "-err_detect ignore_err"
             image = await ffmpeg.async_get_image(
                 self.hass,
                 self._video_url,
+                extra_cmd=self._ffmpeg_arguments,
                 width=width,
                 height=height,
             )
@@ -184,8 +191,12 @@ class RingCam(RingEntity[RingDoorBell], Camera):
         if self._video_url is None:
             return None
 
+        #stream = CameraMjpeg(self._ffmpeg_manager.binary)
+        #await stream.open_camera(self._video_url)
+        from os import path
+        self._ffmpeg_arguments = "-err_detect ignore_err"
         stream = CameraMjpeg(self._ffmpeg_manager.binary)
-        await stream.open_camera(self._video_url)
+        await stream.open_camera(self._video_url, extra_cmd=self._ffmpeg_arguments)
 
         try:
             stream_reader = await stream.get_reader()
@@ -253,21 +264,33 @@ class RingCam(RingEntity[RingDoorBell], Camera):
             self._attr_motion_detection_enabled = self._device.motion_detection
             self.async_write_ha_state()
 
-        if TYPE_CHECKING:
-            # _last_event is set before calling update so will never be None
-            assert self._last_event
+        ## SJ: commentted out.
+        #if TYPE_CHECKING:
+        #    # _last_event is set before calling update so will never be None
+        #    assert self._last_event
 
-        if self._last_event["recording"]["status"] != "ready":
-            return
+        #if self._last_event["recording"]["status"] != "ready":
+        #    return
 
         utcnow = dt_util.utcnow()
-        if self._last_video_id == self._last_event["id"] and utcnow <= self._expires_at:
-            return
+        #if self._last_video_id == self._last_event["id"] and utcnow <= self._expires_at:
+        #    return
 
-        if self._last_video_id != self._last_event["id"]:
-            self._images = {}
+        #if self._last_video_id != self._last_event["id"]:
+        #    self._images = {}
 
-        self._video_url = await self._async_get_video()
+        #self._video_url = await self._async_get_video()
+        #SJ setting video url
+        import glob
+        try:
+            ret = glob.glob("/config/ring_doorbell_video/*part0.mp4")
+            ret.sort()
+            self._video_url = ret[-1]
+        except requests.Timeout:
+            _LOGGER.warning(
+                "Time out fetching recording url for camera %s", self.entity_id
+            )
+            self._video_url = None
 
         self._last_video_id = self._last_event["id"]
         self._expires_at = FORCE_REFRESH_INTERVAL + utcnow
