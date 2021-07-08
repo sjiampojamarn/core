@@ -37,8 +37,8 @@ async def async_setup_entry(
     for camera in chain(
         devices["doorbots"], devices["authorized_doorbots"], devices["stickup_cams"]
     ):
-        if not camera.has_subscription:
-            continue
+        # if not camera.has_subscription:
+        #    continue
 
         cams.append(RingCam(config_entry.entry_id, ffmpeg_manager, camera))
 
@@ -55,6 +55,7 @@ class RingCam(RingEntityMixin, Camera):
         super().__init__(config_entry_id, device)
 
         self._ffmpeg_manager = ffmpeg_manager
+        self._ffmpeg_arguments = None
         self._last_event = None
         self._last_video_id = None
         self._video_url = None
@@ -104,10 +105,13 @@ class RingCam(RingEntityMixin, Camera):
         self, width: int | None = None, height: int | None = None
     ) -> bytes | None:
         """Return a still image response from the camera."""
-        if self._image is None and self._video_url:
+        if self._video_url:
+            from os import path
+            self._ffmpeg_arguments = "-err_detect ignore_err"
             image = await ffmpeg.async_get_image(
                 self.hass,
                 self._video_url,
+                extra_cmd=self._ffmpeg_arguments,
                 width=width,
                 height=height,
             )
@@ -117,13 +121,18 @@ class RingCam(RingEntityMixin, Camera):
 
         return self._image
 
+
     async def handle_async_mjpeg_stream(self, request):
         """Generate an HTTP MJPEG stream from the camera."""
         if self._video_url is None:
             return
 
+        #stream = CameraMjpeg(self._ffmpeg_manager.binary)
+        #await stream.open_camera(self._video_url)
+        from os import path
+        self._ffmpeg_arguments = "-err_detect ignore_err"
         stream = CameraMjpeg(self._ffmpeg_manager.binary)
-        await stream.open_camera(self._video_url)
+        await stream.open_camera(self._video_url, extra_cmd=self._ffmpeg_arguments)
 
         try:
             stream_reader = await stream.get_reader()
@@ -138,23 +147,24 @@ class RingCam(RingEntityMixin, Camera):
 
     async def async_update(self) -> None:
         """Update camera entity and refresh attributes."""
-        if self._last_event is None:
-            return
+        #if self._last_event is None:
+        #    return
 
-        if self._last_event["recording"]["status"] != "ready":
-            return
+        #if self._last_event["recording"]["status"] != "ready":
+        #    return
 
         utcnow = dt_util.utcnow()
-        if self._last_video_id == self._last_event["id"] and utcnow <= self._expires_at:
-            return
+        #if self._last_video_id == self._last_event["id"] and utcnow <= self._expires_at:
+        #    return
 
-        if self._last_video_id != self._last_event["id"]:
-            self._image = None
-
+        import glob
         try:
-            video_url = await self.hass.async_add_executor_job(
-                self._device.recording_url, self._last_event["id"]
-            )
+            ret = glob.glob("/config/ring_doorbell_video/*part0.mp4")
+            ret.sort()
+            video_url = ret[-1]
+            #video_url = await self.hass.async_add_executor_job(
+            #    self._device.recording_url, self._last_event["id"]
+            #)
         except requests.Timeout:
             _LOGGER.warning(
                 "Time out fetching recording url for camera %s", self.entity_id
