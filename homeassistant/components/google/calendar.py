@@ -46,6 +46,8 @@ from homeassistant.helpers.entity import generate_entity_id
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 from homeassistant.util import dt as dt_util
+from homeassistant.util import Throttle
+from homeassistant.util.dt import now
 
 from . import (
     CONF_IGNORE_AVAILABILITY,
@@ -74,6 +76,15 @@ from .const import (
 from .coordinator import CalendarQueryUpdateCoordinator, CalendarSyncUpdateCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+MIN_TIME_BETWEEN_UPDATES = timedelta(minutes=5)
+# Maximum number of upcoming events to consider for state changes between
+# coordinator updates.
+MAX_UPCOMING_EVENTS = 20
+DEFAULT_GOOGLE_SEARCH_PARAMS = {
+    "orderBy": "startTime",
+    "singleEvents": True,
+}
 
 # Avoid syncing super old data on initial syncs. Note that old but active
 # recurring events are still included.
@@ -384,6 +395,11 @@ class GoogleCalendarEntity(
 
         if event.event_type == EventTypeEnum.WORKING_LOCATION:
             return self.entity_description.working_location
+
+        # SJ: skip past events started 5 minutes ago.
+        if (now() - _get_calendar_event(event).start_datetime_local).total_seconds() > 60 * 5:
+            return False
+        
         if self._ignore_availability:
             return True
         return event.transparency == OPAQUE
