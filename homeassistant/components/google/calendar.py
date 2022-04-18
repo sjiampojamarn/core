@@ -47,6 +47,8 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 from homeassistant.util import dt as dt_util
+from homeassistant.util import Throttle
+from homeassistant.util.dt import now
 
 from . import (
     CONF_IGNORE_AVAILABILITY,
@@ -75,7 +77,11 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-MIN_TIME_BETWEEN_UPDATES = timedelta(minutes=15)
+MIN_TIME_BETWEEN_UPDATES = timedelta(minutes=5)
+DEFAULT_GOOGLE_SEARCH_PARAMS = {
+    "orderBy": "startTime",
+    "singleEvents": True,
+}
 
 # Avoid syncing super old data on initial syncs. Note that old but active
 # recurring events are still included.
@@ -412,6 +418,10 @@ class GoogleCalendarEntity(
 
     def _event_filter(self, event: Event) -> bool:
         """Return True if the event is visible."""
+        # SJ: skip past events started 5 minutes ago.
+        if (now() - _get_calendar_event(event).start_datetime_local).total_seconds() > 60 * 5:
+            return False
+        
         if self._ignore_availability:
             return True
         return event.transparency == OPAQUE
