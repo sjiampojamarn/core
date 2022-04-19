@@ -46,6 +46,8 @@ from homeassistant.helpers.update_coordinator import (
     UpdateFailed,
 )
 from homeassistant.util import dt as dt_util
+from homeassistant.util import Throttle
+from homeassistant.util.dt import now
 
 from . import (
     CONF_IGNORE_AVAILABILITY,
@@ -427,6 +429,10 @@ class GoogleCalendarEntity(
 
     def _event_filter(self, event: Event) -> bool:
         """Return True if the event is visible."""
+        # SJ: skip past events started 5 minutes ago.
+        if (now() - _get_calendar_event(event).start_datetime_local).total_seconds() > 60 * 5:
+            return False
+        
         if self._ignore_availability:
             return True
         return event.transparency == OPAQUE
