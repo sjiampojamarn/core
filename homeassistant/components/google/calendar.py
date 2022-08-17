@@ -464,14 +464,13 @@ class GoogleCalendarEntity(
 
     def _apply_coordinator_update(self) -> None:
         """Copy state from the coordinator to this entity."""
-        if api_event := next(
-            filter(
-                self._event_filter,
-                self.coordinator.upcoming or [],
-            ),
-            None,
-        ):
-            self._event = _get_calendar_event(api_event)
+        events = self.coordinator.data
+        # SJ: skip past events started 5 minutes ago. 
+        l_events = iter(events)
+        self._event = _get_calendar_event(next(l_events)) if events else None
+        while (self._event is not None) and (now() - self._event.start_datetime_local).total_seconds() > 60 * 5:
+            self._event = _get_calendar_event(next(l_events)) if events else None
+        if self._event:
             (self._event.summary, self._offset_value) = extract_offset(
                 self._event.summary, self._offset
             )
