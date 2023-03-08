@@ -56,7 +56,7 @@ RUN \
         --find-links "${WHEELS_LINKS}" \
         --use-deprecated=legacy-resolver \
         -e ./homeassistant \
-    && python3 -m compileall \
+    && python3 -vvv -m compileall \
         homeassistant/homeassistant
 
 # Home Assistant S6-Overlay
