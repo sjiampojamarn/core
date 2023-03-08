@@ -10,7 +10,7 @@ from ipaddress import IPv4Address, IPv6Address, IPv4Network, IPv6Network, ip_add
 import logging
 from socket import gethostbyaddr, herror
 from typing import Any, Concatenate, Final, ParamSpec, TypeVar
-from typing inport List, Union, cast
+from typing import List, Union, cast
 
 from aiohttp.web import Application, Request, Response, StreamResponse, middleware
 from aiohttp.web_exceptions import HTTPForbidden, HTTPUnauthorized
