@@ -49,7 +49,13 @@ RUN \
         -r homeassistant/requirements_all.txt
 
 ## Setup Home Assistant Core
-COPY --parents LICENSE* README* homeassistant/ pyproject.toml homeassistant/
+COPY --parents LICENSE* README* homeassistant/ script/ pyproject.toml homeassistant/
+## Generate en translation required after 
+## https://github.com/home-assistant/core/pull/87543
+RUN \
+    cd homeassistant \
+    && python3 -m script.translations develop --all
+
 RUN \
     uv pip install \
         -e ./homeassistant \
