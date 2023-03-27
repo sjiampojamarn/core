@@ -53,6 +53,13 @@ RUN \
 
 ## Setup Home Assistant Core
 COPY . homeassistant/
+
+## Generate en translation required after 
+## https://github.com/home-assistant/core/pull/87543
+RUN \
+    cd homeassistant \
+    && python3 -m script.translations develop --all
+
 RUN \
     uv pip install \
         -e ./homeassistant \
