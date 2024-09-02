@@ -43,7 +43,7 @@ async def async_setup_entry(
         RingCam(camera, devices_coordinator, ffmpeg_manager)
         for camera in ring_data.devices.video_devices
         #if camera.has_subscription
-        if true
+        if True
     ]
 
     async_add_entities(cams)
