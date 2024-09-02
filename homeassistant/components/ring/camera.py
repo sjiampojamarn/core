@@ -89,7 +89,7 @@ async def async_setup_entry(
         for camera in ring_data.devices.video_devices
         #if description.exists_fn(camera)
         #if camera.has_subscription
-        if true
+        if True
     ]
 
     async_add_entities(cams)
